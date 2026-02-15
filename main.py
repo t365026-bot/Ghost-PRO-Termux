@@ -1,80 +1,96 @@
-import flet as ft
+import time
+import os
+import sys
+import datetime
+from rich.console import Console
+from rich.live import Live
+from rich.table import Table
+from rich.panel import Panel
+from rich.layout import Layout
 import firebase_admin
 from firebase_admin import credentials, firestore
 
-# АВТО-ПОДКЛЮЧЕНИЕ К ТВОЕЙ СЕТИ
+# ДАННЫЕ ПРОЕКТА
 try:
-    cred = credentials.Certificate("serviceAccountKey.json")
-    firebase_admin.initialize_app(cred, {'storage_bucket': 'ghost-pro-5aa22.firebasestorage.app'})
+    if not firebase_admin._apps:
+        cred = credentials.Certificate("serviceAccountKey.json")
+        firebase_admin.initialize_app(cred)
     db = firestore.client()
-except:
-    print("ОШИБКА: Файл ключа не найден в папке!")
+except Exception as e:
+    print(f"ОШИБКА БАЗЫ: {e}")
 
-def main(page: ft.Page):
-    page.title = "GHOST PRO V13"
-    page.theme_mode = ft.ThemeMode.DARK
-    page.bgcolor = "#000000"
+console = Console()
+chat_history = []
+last_msg_count = 0
+
+def play_notification():
+    # Простой системный писк (бип) для Termux
+    print("\a", end="") 
+
+def generate_ui():
+    table = Table(show_header=True, header_style="bold green", expand=True, 
+                  title="[bold red]GHOST PRO V13 - PRIVATE TERMINAL[/]")
+    table.add_column("TIME", style="dim", width=10)
+    table.add_column("SENDER", style="bold cyan", width=15)
+    table.add_column("MESSAGE", style="white")
+
+    # Берем последние 15 сообщений для экрана
+    for msg in chat_history[-15:]:
+        table.add_row(
+            msg.get('time', '--:--'),
+            msg.get('user', 'Anon'),
+            msg.get('text', '')
+        )
     
-    state = {"uid": None, "role": "USER"}
+    footer = "[bold yellow]Ctrl+C[/] -> Отправить сообщение | [bold yellow]Exit[/] -> Выход"
+    return Panel(table, border_style="green", subtitle=footer)
+
+def sync_messages(docs, changes, read_time):
+    global chat_history, last_msg_count
+    new_history = [d.to_dict() for d in docs]
     
-    # Элементы интерфейса
-    chat_list = ft.Column(scroll=ft.ScrollMode.ALWAYS, expand=True)
-    users_list = ft.Text("ОНЛАЙН: @Загрузка...", color="#00FF00", size=12)
+    # Если сообщений стало больше — значит пришло новое, пищим
+    if len(new_history) > last_msg_count and last_msg_count != 0:
+        play_notification()
+    
+    chat_history = new_history
+    last_msg_count = len(chat_history)
 
-    def on_message(docs, changes, read_time):
-        chat_list.controls.clear()
-        active_users = set()
-        for doc in docs:
-            m = doc.to_dict()
-            user = m.get("user", "Unknown")
-            active_users.add(user)
-            chat_list.controls.append(
-                ft.Container(
-                    content=ft.Text(f"{user}: {m.get('text')}", color="white"),
-                    padding=10, border=ft.border.all(1, "#004400"), border_radius=5
-                )
-            )
-        users_list.value = f"В СЕТИ: {', '.join(list(active_users))}"
-        page.update()
+def main():
+    os.system('clear')
+    console.print("[bold green]INITIALIZING MATRIX NETWORK...[/]")
+    my_uid = console.input("[bold green]ENTER YOUR UID: [/]")
+    if not my_uid.startswith("@"): my_uid = f"@{my_uid}"
 
-    def send(e):
-        if msg_in.value:
-            db.collection("messages").add({
-                "user": state["uid"],
-                "text": msg_in.value,
-                "timestamp": firestore.SERVER_TIMESTAMP
-            })
-            msg_in.value = ""
-            page.update()
+    # Подписка на коллекцию сообщений в реальном времени
+    # Можно менять путь на "private_chats/ID/messages" для лички
+    query = db.collection("messages").order_by("ts", descending=False).limit_to_last(30)
+    query.on_snapshot(sync_messages)
 
-    def login(e):
-        if user_in.value:
-            state["uid"] = f"@{user_in.value}"
-            if user_in.value == "adminpan" and pass_in.value == "TimaIssam2026":
-                state["role"] = "ADMIN"
+    try:
+        # Режим Live обновляет экран сам каждые полсекунды
+        with Live(generate_ui(), refresh_per_second=2, screen=True) as live:
+            while True:
+                live.update(generate_ui())
+                time.sleep(0.5)
+    except KeyboardInterrupt:
+        # Режим отправки сообщения
+        console.print("\n" + "—"*30)
+        msg_text = console.input("[bold green]WRITE MESSAGE: [/]")
+        
+        if msg_text.lower() == 'exit':
+            sys.exit()
             
-            page.clean()
-            page.add(
-                ft.Column([
-                    ft.Row([ft.Text("GHOST_NETWORK", size=20, weight="bold"), users_list], justify="spaceBetween"),
-                    ft.Container(content=chat_list, expand=True, border=ft.border.all(1, "#002200")),
-                    ft.Row([msg_in, ft.IconButton(ft.icons.SEND, on_click=send)])
-                ], expand=True, padding=10)
-            )
-            # Слушаем твою базу ghost-pro-5aa22
-            db.collection("messages").order_by("timestamp").on_snapshot(on_message)
-
-    user_in = ft.TextField(label="ТВОЙ НИК", border_color="#00FF00")
-    pass_in = ft.TextField(label="ПАРОЛЬ", password=True, border_color="#00FF00")
-    msg_in = ft.TextField(hint_text="Сообщение...", expand=True)
-
-    page.add(
-        ft.Column([
-            ft.Text("GHOST_PRO_CORE", size=30, color="#00FF00", weight="bold"),
-            user_in, pass_in,
-            ft.ElevatedButton("ВОЙТИ В СЕТЬ", on_click=login)
-        ], horizontal_alignment="center")
-    )
+        if msg_text:
+            db.collection("messages").add({
+                "user": my_uid,
+                "text": msg_text,
+                "ts": firestore.SERVER_TIMESTAMP,
+                "time": datetime.datetime.now().strftime("%H:%M")
+            })
+        
+        # Перезапуск, чтобы вернуться в режим онлайн-просмотра
+        os.execv(sys.executable, ['python'] + sys.argv)
 
 if __name__ == "__main__":
-    ft.app(target=main, view=ft.AppView.WEB_BROWSER, port=8550)
+    main()
