@@ -1,96 +1,88 @@
-import time
 import os
+import time
 import sys
-import datetime
 from rich.console import Console
-from rich.live import Live
-from rich.table import Table
 from rich.panel import Panel
-from rich.layout import Layout
+from rich.table import Table
 import firebase_admin
 from firebase_admin import credentials, firestore
 
-# ДАННЫЕ ПРОЕКТА
-try:
-    if not firebase_admin._apps:
+# Инициализация твоего Firebase
+if not firebase_admin._apps:
+    try:
         cred = credentials.Certificate("serviceAccountKey.json")
         firebase_admin.initialize_app(cred)
-    db = firestore.client()
-except Exception as e:
-    print(f"ОШИБКА БАЗЫ: {e}")
+        db = firestore.client()
+    except:
+        print("Ошибка: serviceAccountKey.json не найден!")
 
 console = Console()
-chat_history = []
-last_msg_count = 0
+USER_DATA = {"uid": None, "status": "Online"}
 
-def play_notification():
-    # Простой системный писк (бип) для Termux
-    print("\a", end="") 
-
-def generate_ui():
-    table = Table(show_header=True, header_style="bold green", expand=True, 
-                  title="[bold red]GHOST PRO V13 - PRIVATE TERMINAL[/]")
-    table.add_column("TIME", style="dim", width=10)
-    table.add_column("SENDER", style="bold cyan", width=15)
-    table.add_column("MESSAGE", style="white")
-
-    # Берем последние 15 сообщений для экрана
-    for msg in chat_history[-15:]:
-        table.add_row(
-            msg.get('time', '--:--'),
-            msg.get('user', 'Anon'),
-            msg.get('text', '')
-        )
-    
-    footer = "[bold yellow]Ctrl+C[/] -> Отправить сообщение | [bold yellow]Exit[/] -> Выход"
-    return Panel(table, border_style="green", subtitle=footer)
-
-def sync_messages(docs, changes, read_time):
-    global chat_history, last_msg_count
-    new_history = [d.to_dict() for d in docs]
-    
-    # Если сообщений стало больше — значит пришло новое, пищим
-    if len(new_history) > last_msg_count and last_msg_count != 0:
-        play_notification()
-    
-    chat_history = new_history
-    last_msg_count = len(chat_history)
-
-def main():
+def show_banner():
     os.system('clear')
-    console.print("[bold green]INITIALIZING MATRIX NETWORK...[/]")
-    my_uid = console.input("[bold green]ENTER YOUR UID: [/]")
-    if not my_uid.startswith("@"): my_uid = f"@{my_uid}"
+    console.print(Panel.fit("[bold green]GHOST PRO V13 - TERMINAL EDITION[/]", border_style="green"))
 
-    # Подписка на коллекцию сообщений в реальном времени
-    # Можно менять путь на "private_chats/ID/messages" для лички
-    query = db.collection("messages").order_by("ts", descending=False).limit_to_last(30)
-    query.on_snapshot(sync_messages)
+def profile_menu():
+    show_banner()
+    table = Table(title="МОЙ ПРОФИЛЬ")
+    table.add_column("Параметр", style="cyan")
+    table.add_column("Значение", style="white")
+    table.add_row("ID", USER_DATA["uid"])
+    table.add_row("Статус", USER_DATA["status"])
+    console.print(table)
+    console.input("\n[yellow]Нажми Enter, чтобы выйти в меню...[/]")
 
-    try:
-        # Режим Live обновляет экран сам каждые полсекунды
-        with Live(generate_ui(), refresh_per_second=2, screen=True) as live:
-            while True:
-                live.update(generate_ui())
-                time.sleep(0.5)
-    except KeyboardInterrupt:
-        # Режим отправки сообщения
-        console.print("\n" + "—"*30)
-        msg_text = console.input("[bold green]WRITE MESSAGE: [/]")
+def search_and_chat():
+    show_banner()
+    target = console.input("[bold green]Введите UID для поиска (например, @ivan): [/]")
+    if not target.startswith("@"): target = f"@{target}"
+    
+    console.print(f"[bold yellow]Создание зашифрованного канала с {target}...[/]")
+    time.sleep(1)
+    
+    # Логика личного чата через Firebase
+    chat_id = "_".join(sorted([USER_DATA["uid"], target]))
+    open_chat(chat_id, target)
+
+def open_chat(chat_id, partner):
+    while True:
+        show_banner()
+        console.print(f"[bold cyan]ЧАТ С {partner} (Ctrl+C для выхода)[/]\n")
         
-        if msg_text.lower() == 'exit':
-            sys.exit()
-            
-        if msg_text:
-            db.collection("messages").add({
-                "user": my_uid,
-                "text": msg_text,
-                "ts": firestore.SERVER_TIMESTAMP,
-                "time": datetime.datetime.now().strftime("%H:%M")
-            })
+        # Подгружаем последние 10 сообщений
+        msgs = db.collection("chats").document(chat_id).collection("messages").order_by("ts").limit_to_last(10).get()
+        for m in msgs:
+            data = m.to_dict()
+            color = "green" if data['user'] == USER_DATA["uid"] else "white"
+            console.print(f"[{color}]{data['user']}: {data['text']}[/]")
         
-        # Перезапуск, чтобы вернуться в режим онлайн-просмотра
-        os.execv(sys.executable, ['python'] + sys.argv)
+        msg_text = console.input("\n[bold green]>>> [/]")
+        if msg_text.lower() == 'exit': break
+        
+        db.collection("chats").document(chat_id).collection("messages").add({
+            "user": USER_DATA["uid"],
+            "text": msg_text,
+            "ts": firestore.SERVER_TIMESTAMP
+        })
+
+def main_menu():
+    while True:
+        show_banner()
+        console.print("[bold green]1.[/] Мой профиль")
+        console.print("[bold green]2.[/] Поиск юзера и чат")
+        console.print("[bold green]3.[/] Список активных чатов")
+        console.print("[bold red]4.[/] Выход")
+        
+        choice = console.input("\n[bold cyan]Выберите пункт (1-4): [/]")
+        
+        if choice == "1": profile_menu()
+        elif choice == "2": search_and_chat()
+        elif choice == "3": console.print("[yellow]Функция в разработке...[/]"); time.sleep(1)
+        elif choice == "4": sys.exit()
 
 if __name__ == "__main__":
-    main()
+    show_banner()
+    USER_DATA["uid"] = console.input("[bold green]ВВЕДИТЕ ВАШ UID: [/]")
+    if not USER_DATA["uid"].startswith("@"): USER_DATA["uid"] = f"@{USER_DATA['uid']}"
+    main_menu()
