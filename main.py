@@ -1,18 +1,14 @@
 import flet as ft
-import datetime
 import firebase_admin
 from firebase_admin import credentials, firestore
 
-# --- ПОДКЛЮЧЕНИЕ FIREBASE ---
-# Файл serviceAccountKey.json должен лежать в той же папке!
+# АВТО-ПОДКЛЮЧЕНИЕ К ТВОЕЙ СЕТИ
 try:
     cred = credentials.Certificate("serviceAccountKey.json")
-    firebase_admin.initialize_app(cred, {
-        'storageBucket': 'ghost-pro-5aa22.firebasestorage.app'
-    })
+    firebase_admin.initialize_app(cred, {'storage_bucket': 'ghost-pro-5aa22.firebasestorage.app'})
     db = firestore.client()
-except Exception as e:
-    print(f"[-] Ошибка конфига: {e}")
+except:
+    print("ОШИБКА: Файл ключа не найден в папке!")
 
 def main(page: ft.Page):
     page.title = "GHOST PRO V13"
@@ -20,17 +16,28 @@ def main(page: ft.Page):
     page.bgcolor = "#000000"
     
     state = {"uid": None, "role": "USER"}
-    chat_container = ft.Column(scroll=ft.ScrollMode.ALWAYS, expand=True)
+    
+    # Элементы интерфейса
+    chat_list = ft.Column(scroll=ft.ScrollMode.ALWAYS, expand=True)
+    users_list = ft.Text("ОНЛАЙН: @Загрузка...", color="#00FF00", size=12)
 
-    # Исправленный обработчик (совместим с новыми версиями flet)
-    def on_file_res(e):
-        if e.files:
-            page.show_snack_bar(ft.SnackBar(ft.Text(f"Выбрано: {e.files[0].name}")))
+    def on_message(docs, changes, read_time):
+        chat_list.controls.clear()
+        active_users = set()
+        for doc in docs:
+            m = doc.to_dict()
+            user = m.get("user", "Unknown")
+            active_users.add(user)
+            chat_list.controls.append(
+                ft.Container(
+                    content=ft.Text(f"{user}: {m.get('text')}", color="white"),
+                    padding=10, border=ft.border.all(1, "#004400"), border_radius=5
+                )
+            )
+        users_list.value = f"В СЕТИ: {', '.join(list(active_users))}"
+        page.update()
 
-    picker = ft.FilePicker(on_result=on_file_res)
-    page.overlay.append(picker)
-
-    def send_msg(e):
+    def send(e):
         if msg_in.value:
             db.collection("messages").add({
                 "user": state["uid"],
@@ -40,52 +47,34 @@ def main(page: ft.Page):
             msg_in.value = ""
             page.update()
 
-    def login_go(e):
-        if user_in.value == "adminpan" and pass_in.value == "TimaIssam2026":
-            state["uid"], state["role"] = "@ADMIN_CORE", "ADMIN"
-        else:
+    def login(e):
+        if user_in.value:
             state["uid"] = f"@{user_in.value}"
-        
-        page.clean()
-        page.add(
-            ft.Column([
-                ft.Row([
-                    ft.Text(f"SESSION: {state['uid']}", color="#00FF00", weight="bold"),
-                    ft.IconButton(ft.icons.DELETE_FOREVER, icon_color="red", visible=state["role"]=="ADMIN")
-                ], justify="spaceBetween"),
-                ft.Container(content=chat_container, expand=True, border=ft.border.all(1, "#004400"), padding=10),
-                ft.Row([
-                    ft.IconButton(ft.icons.ADD_A_PHOTO, on_click=lambda _: picker.pick_files()),
-                    msg_in, 
-                    ft.IconButton(ft.icons.SEND, on_click=send_msg)
-                ])
-            ], expand=True)
-        )
-        # Real-time прослушка сообщений
-        db.collection("messages").order_by("timestamp").on_snapshot(lambda docs, c, t: (
-            chat_container.controls.clear(),
-            [chat_container.controls.append(ft.Text(f"{d.to_dict().get('user')}: {d.to_dict().get('text')}", color="white")) for d in docs],
-            page.update()
-        ))
+            if user_in.value == "adminpan" and pass_in.value == "TimaIssam2026":
+                state["role"] = "ADMIN"
+            
+            page.clean()
+            page.add(
+                ft.Column([
+                    ft.Row([ft.Text("GHOST_NETWORK", size=20, weight="bold"), users_list], justify="spaceBetween"),
+                    ft.Container(content=chat_list, expand=True, border=ft.border.all(1, "#002200")),
+                    ft.Row([msg_in, ft.IconButton(ft.icons.SEND, on_click=send)])
+                ], expand=True, padding=10)
+            )
+            # Слушаем твою базу ghost-pro-5aa22
+            db.collection("messages").order_by("timestamp").on_snapshot(on_message)
 
-    user_in = ft.TextField(label="UID / EMAIL", border_color="#00FF00")
-    pass_in = ft.TextField(label="KEY", password=True, border_color="#00FF00")
-    msg_in = ft.TextField(hint_text="Сообщение...", expand=True, border_color="#00FF00")
+    user_in = ft.TextField(label="ТВОЙ НИК", border_color="#00FF00")
+    pass_in = ft.TextField(label="ПАРОЛЬ", password=True, border_color="#00FF00")
+    msg_in = ft.TextField(hint_text="Сообщение...", expand=True)
 
     page.add(
         ft.Column([
             ft.Text("GHOST_PRO_CORE", size=30, color="#00FF00", weight="bold"),
             user_in, pass_in,
-            ft.ElevatedButton("CONNECT", on_click=login_go, bgcolor="#002200", color="#00FF00")
+            ft.ElevatedButton("ВОЙТИ В СЕТЬ", on_click=login)
         ], horizontal_alignment="center")
     )
 
 if __name__ == "__main__":
-    # Выводим ссылку в консоль Termux перед запуском
-    print("\n" + "="*30)
-    print("GHOST SERVER ACTIVE")
-    print("URL: http://127.0.0.1:8550")
-    print("="*30 + "\n")
-    
-    # Запуск веб-версии для работы в браузере телефона
     ft.app(target=main, view=ft.AppView.WEB_BROWSER, port=8550)
