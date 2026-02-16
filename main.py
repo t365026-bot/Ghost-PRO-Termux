@@ -1,103 +1,130 @@
-import os, time, sys, datetime
-from rich.console import Console
-from rich.panel import Panel
-from rich.table import Table
+import os
+import sys
+import time
+import datetime
+import threading
 import firebase_admin
 from firebase_admin import credentials, firestore
 
-# Подключаем твой Firebase
-if not firebase_admin._apps:
-    cred = credentials.Certificate("serviceAccountKey.json")
-    firebase_admin.initialize_app(cred)
-db = firestore.client()
+class GhostTerminal:
+    def __init__(self):
+        self.red = "\033[91m"
+        self.green = "\033[92m"
+        self.blue = "\033[94m"
+        self.yellow = "\033[93m"
+        self.reset = "\033[0m"
+        self.db = None
+        self.uid = None
+        self.role = "USER"
+        self.running = True
 
-console = Console()
-MY_ID = ""
+    def clear(self):
+        os.system('clear')
 
-def show_banner():
-    os.system('clear')
-    console.print(Panel.fit("[bold green]GHOST PRO V13 - TERMINAL SYSTEM[/]\n[bold red]BETA RELEASE[/]", border_style="green"))
+    def animate_text(self, text, speed=0.02):
+        for char in text:
+            sys.stdout.write(char)
+            sys.stdout.flush()
+            time.sleep(speed)
+        print()
 
-# --- 1. ПРОФИЛЬ ---
-def profile():
-    show_banner()
-    table = Table(title="ДАННЫЕ СЕССИИ")
-    table.add_column("Ключ", style="cyan")
-    table.add_column("Значение", style="green")
-    table.add_row("USER_ID", MY_ID)
-    table.add_row("NETWORK", "GHOST_NET_V13")
-    table.add_row("STATUS", "ONLINE")
-    console.print(table)
-    console.input("\n[yellow]Нажми Enter для выхода...[/]")
+    def draw_logo(self):
+        self.clear()
+        logo = f"""{self.green}
+ ██████╗ ██╗  ██╗ ██████╗ ███████╗████████╗    ██████╗ ██████╗  ██████╗ 
+██╔════╝ ██║  ██║██╔═══██╗██╔════╝╚══██╔══╝    ██╔══██╗██╔══██╗██╔═══██╗
+██║  ███╗███████║██║   ██║███████╗   ██║       ██████╔╝██████╔╝██║   ██║
+██║   ██║██╔══██║██║   ██║╚════██║   ██║       ██╔═══╝ ██╔══██╗██║   ██║
+╚██████╔╝██║  ██║╚██████╔╝███████║   ██║       ██║     ██║  ██║╚██████╔╝
+ ╚═════╝ ╚═╝  ╚═╝ ╚═════╝ ╚══════╝   ╚═╝       ╚═╝     ╚═╝  ╚═╝ ╚═════╝
+           {self.yellow}[=] MATRIX ENCRYPTED TERMINAL V13 [=]{self.reset}"""
+        print(logo)
 
-# --- 2. ПОИСК И НОВЫЙ ЧАТ ---
-def search_user():
-    show_banner()
-    target = console.input("[bold green]Введи ник для поиска (напр. @tima): [/]")
-    if not target.startswith("@"): target = f"@{target}"
-    
-    # Сохраняем в список активных, чтобы потом не искать
-    chat_id = "_".join(sorted([MY_ID, target]))
-    db.collection("users").document(MY_ID).collection("active_chats").document(chat_id).set({
-        "partner": target, "ts": firestore.SERVER_TIMESTAMP
-    })
-    chat_room(chat_id, target)
+    def connect_db(self):
+        try:
+            if not firebase_admin._apps:
+                cred = credentials.Certificate("serviceAccountKey.json")
+                firebase_admin.initialize_app(cred)
+            self.db = firestore.client()
+            return True
+        except Exception as e:
+            print(f"{self.red}[!] DATABASE ERROR: {e}{self.reset}")
+            return False
 
-# --- 3. СПИСОК ЧАТОВ ---
-def list_chats():
-    show_banner()
-    chats = db.collection("users").document(MY_ID).collection("active_chats").get()
-    
-    if not chats:
-        console.print("[red]Активных чатов пока нет.[/]")
-        time.sleep(2); return
-
-    table = Table(title="ВАШИ ПЕРЕПИСКИ")
-    table.add_column("№", style="yellow")
-    table.add_column("СОБЕСЕДНИК", style="cyan")
-    
-    chat_map = {}
-    for i, doc in enumerate(chats, 1):
-        data = doc.to_dict()
-        chat_map[str(i)] = (doc.id, data['partner'])
-        table.add_row(str(i), data['partner'])
-    
-    console.print(table)
-    choice = console.input("\n[bold green]Выбери номер или '0': [/]")
-    if choice in chat_map:
-        chat_room(chat_map[choice][0], chat_map[choice][1])
-
-# --- РЕАЛЬНЫЙ ЧАТ ---
-def chat_room(chat_id, partner):
-    while True:
-        show_banner()
-        console.print(f"[bold cyan]ЧАТ: {partner} | /exit - выйти[/]\n")
+    def auth_system(self):
+        self.draw_logo()
+        self.animate_text(f"{self.green}[*] ПРОВЕРКА ЗАЩИЩЕННОГО СОЕДИНЕНИЯ...{self.reset}")
+        time.sleep(1)
         
-        msgs = db.collection("chats").document(chat_id).collection("messages").order_by("ts").limit_to_last(15).get()
-        for m in msgs:
-            d = m.to_dict()
-            color = "green" if d.get('user') == MY_ID else "white"
-            console.print(f"[{color}]{d.get('user')}:[/] {d.get('text')}")
+        self.uid = input(f"{self.green}[+] ВВЕДИТЕ USER_ID: @{self.reset}")
+        if not self.uid.startswith("@"): self.uid = f"@{self.uid}"
+        
+        key = input(f"{self.green}[+] ВВЕДИТЕ 2FA_KEY: {self.reset}")
+        
+        if self.uid == "@adminpan" and key == "TimaIssam2026":
+            self.role = "ADMIN"
+            print(f"{self.yellow}[!] ПРИВИЛЕГИИ АДМИНИСТРАТОРА ПОДТВЕРЖДЕНЫ{self.reset}")
+        
+        if not self.connect_db():
+            sys.exit()
+        
+        self.animate_text(f"{self.blue}[*] ДОСТУП РАЗРЕШЕН. ДОБРО ПОЖАЛОВАТЬ, {self.uid}{self.reset}")
+        time.sleep(1.5)
 
-        msg = console.input("\n[bold green]>>> [/]")
-        if msg == "/exit": break
-        if msg.strip():
-            db.collection("chats").document(chat_id).collection("messages").add({
-                "user": MY_ID, "text": msg, "ts": firestore.SERVER_TIMESTAMP
-            })
+    def show_menu(self):
+        while self.running:
+            self.draw_logo()
+            print(f"{self.blue} СТАТУС: ONLINE | СЕССИЯ: {self.uid} | РОЛЬ: {self.role}{self.reset}")
+            print("-" * 65)
+            print(f"{self.green}1.{self.reset} [ GLOBAL_CHAT ] - Общий зашифрованный канал")
+            print(f"{self.green}2.{self.reset} [ PRIVATE_MSG ] - Поиск и личные сообщения")
+            print(f"{self.green}3.{self.reset} [ SYSTEM_INFO ] - Состояние сети Ghost")
+            if self.role == "ADMIN":
+                print(f"{self.red}4. [ ADMIN_PANEL ] - Управление пользователями{self.reset}")
+            print(f"{self.green}0.{self.reset} [ DISCONNECT ] - Разорвать соединение")
+            
+            choice = input(f"\n{self.green}GHOST@TERMINAL:~$ {self.reset}")
+            
+            if choice == "1": self.chat_engine("GLOBAL")
+            elif choice == "0": self.running = False
+            elif choice == "4" and self.role == "ADMIN": self.admin_panel()
 
-def main_menu():
-    while True:
-        show_banner()
-        console.print("[bold green]1.[/] Профиль\n[bold green]2.[/] Поиск и Новый чат\n[bold green]3.[/] Мои чаты\n[bold red]4.[/] Выход")
-        m = console.input("\n[bold cyan]ВЫБОР: [/]")
-        if m == "1": profile()
-        elif m == "2": search_user()
-        elif m == "3": list_chats()
-        elif m == "4": sys.exit()
+    def chat_engine(self, channel):
+        self.draw_logo()
+        print(f"{self.yellow}[*] ВХОД В КАНАЛ: {channel} (Введите '/exit' для выхода){self.reset}")
+        print("-" * 65)
+
+        # Поток для прослушивания сообщений
+        def listen():
+            messages = self.db.collection("messages").order_by("ts", descending=False).limit_to_last(15)
+            watch = messages.on_snapshot(self.on_snapshot)
+
+        threading.Thread(target=listen, daemon=True).start()
+
+        while True:
+            msg = input(f"{self.green}{self.uid} > {self.reset}")
+            if msg == "/exit": break
+            if msg.strip():
+                self.db.collection("messages").add({
+                    "u": self.uid,
+                    "t": msg,
+                    "r": self.role,
+                    "ts": firestore.SERVER_TIMESTAMP,
+                    "time": datetime.datetime.now().strftime("%H:%M")
+                })
+
+    def on_snapshot(self, docs, changes, read_time):
+        # Логика обновления экрана при получении сообщений
+        pass 
+
+    def admin_panel(self):
+        self.draw_logo()
+        print(f"{self.red}--- GHOST ADMIN MANAGEMENT ---{self.reset}")
+        print("1. Заблокировать ID")
+        print("2. Очистить логи")
+        input("\nНажмите Enter для возврата...")
 
 if __name__ == "__main__":
-    show_banner()
-    MY_ID = console.input("[bold green]ВВЕДИ СВОЙ @ID: [/]")
-    if not MY_ID.startswith("@"): MY_ID = f"@{MY_ID}"
-    main_menu()
+    app = GhostTerminal()
+    app.auth_system()
+    app.show_menu()
