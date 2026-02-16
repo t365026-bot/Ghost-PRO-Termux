@@ -2,109 +2,84 @@ import os
 import sys
 import time
 import datetime
-import threading
 import firebase_admin
 from firebase_admin import credentials, firestore
+from rich.console import Console
+from rich.panel import Panel
+from rich.text import Text
+from rich.prompt import Prompt
+from rich.table import Table
+from rich.live import Live
 
-class GhostTerminal:
+# Инициализация консоли Rich
+console = Console()
+
+class GhostTermux:
     def __init__(self):
-        self.red = "\033[91m"
-        self.green = "\033[92m"
-        self.blue = "\033[94m"
-        self.yellow = "\033[93m"
-        self.reset = "\033[0m"
         self.db = None
         self.uid = None
         self.role = "USER"
-        self.running = True
+        self.is_running = True
 
     def clear(self):
         os.system('clear')
 
-    def animate_text(self, text, speed=0.02):
-        for char in text:
-            sys.stdout.write(char)
-            sys.stdout.flush()
-            time.sleep(speed)
-        print()
-
     def draw_logo(self):
         self.clear()
-        logo = f"""{self.green}
- ██████╗ ██╗  ██╗ ██████╗ ███████╗████████╗    ██████╗ ██████╗  ██████╗ 
-██╔════╝ ██║  ██║██╔═══██╗██╔════╝╚══██╔══╝    ██╔══██╗██╔══██╗██╔═══██╗
-██║  ███╗███████║██║   ██║███████╗   ██║       ██████╔╝██████╔╝██║   ██║
-██║   ██║██╔══██║██║   ██║╚════██║   ██║       ██╔═══╝ ██╔══██╗██║   ██║
-╚██████╔╝██║  ██║╚██████╔╝███████║   ██║       ██║     ██║  ██║╚██████╔╝
- ╚═════╝ ╚═╝  ╚═╝ ╚═════╝ ╚══════╝   ╚═╝       ╚═╝     ╚═╝  ╚═╝ ╚═════╝
-           {self.yellow}[=] MATRIX ENCRYPTED TERMINAL V13 [=]{self.reset}"""
-        print(logo)
+        logo_text = r"""
+  ________ __                     __      _______   _______   ______  
+ /  _____/|  |__   ____  _______/  |_    |       \ |       \ /      \ 
+/   \  ___|  |  \ /  _ \/  ___/\   __\   |  $$$$$$$|  $$$$$$$|  $$$$$$\
+\    \_\  \   Y  (  <_> )___ \  |  |     | $$__/ $$| $$__    | $$  | $$
+ \______  /___|  /\____/____  > |__|     | $$    $$| $$  \   | $$  | $$
+        \/     \/           \/           | $$$$$$$ | $$$$$$$ | $$  | $$
+                                         | $$      | $$ \    | $$  | $$
+      [=] MATRIX TERMINAL V13 [=]        | $$      | $$  \    \______/ 
+        """
+        console.print(Panel(Text(logo_text, style="bold green"), border_style="green"))
 
-    def connect_db(self):
-        try:
-            if not firebase_admin._apps:
-                cred = credentials.Certificate("serviceAccountKey.json")
-                firebase_admin.initialize_app(cred)
-            self.db = firestore.client()
-            return True
-        except Exception as e:
-            print(f"{self.red}[!] DATABASE ERROR: {e}{self.reset}")
-            return False
+    def init_firebase(self):
+        with console.status("[bold green]Установка соединения с Матрицей...", spinner="matrix"):
+            try:
+                if not firebase_admin._apps:
+                    # Файл serviceAccountKey.json должен быть в этой же папке!
+                    cred = credentials.Certificate("serviceAccountKey.json")
+                    firebase_admin.initialize_app(cred)
+                self.db = firestore.client()
+                return True
+            except Exception as e:
+                console.print(f"[bold red]ОШИБКА ПОДКЛЮЧЕНИЯ: {e}")
+                return False
 
-    def auth_system(self):
+    def auth(self):
         self.draw_logo()
-        self.animate_text(f"{self.green}[*] ПРОВЕРКА ЗАЩИЩЕННОГО СОЕДИНЕНИЯ...{self.reset}")
-        time.sleep(1)
+        console.print("[bold yellow]>>> ТРЕБУЕТСЯ АВТОРИЗАЦИЯ[/bold yellow]")
         
-        self.uid = input(f"{self.green}[+] ВВЕДИТЕ USER_ID: @{self.reset}")
-        if not self.uid.startswith("@"): self.uid = f"@{self.uid}"
+        # Используем Prompt от Rich, он надежнее обычного input
+        user_id = Prompt.ask("[bold green]ВВЕДИТЕ GHOST_ID (без @)[/bold green]")
+        self.uid = f"@{user_id}"
         
-        key = input(f"{self.green}[+] ВВЕДИТЕ 2FA_KEY: {self.reset}")
-        
-        if self.uid == "@adminpan" and key == "TimaIssam2026":
+        password = Prompt.ask("[bold green]ВВЕДИТЕ 2FA_ACCESS_KEY[/bold green]", password=True)
+
+        # Проверка админки
+        if user_id == "adminpan" and password == "TimaIssam2026":
             self.role = "ADMIN"
-            print(f"{self.yellow}[!] ПРИВИЛЕГИИ АДМИНИСТРАТОРА ПОДТВЕРЖДЕНЫ{self.reset}")
+            console.print("[bold cyan]ДОСТУП УРОВНЯ 'ADMIN' ПОДТВЕРЖДЕН[/bold cyan]")
+        else:
+            self.role = "USER"
+            console.print("[bold white]ДОСТУП УРОВНЯ 'USER' УСТАНОВЛЕН[/bold white]")
         
-        if not self.connect_db():
-            sys.exit()
-        
-        self.animate_text(f"{self.blue}[*] ДОСТУП РАЗРЕШЕН. ДОБРО ПОЖАЛОВАТЬ, {self.uid}{self.reset}")
-        time.sleep(1.5)
+        time.sleep(1)
+        return self.init_firebase()
 
-    def show_menu(self):
-        while self.running:
-            self.draw_logo()
-            print(f"{self.blue} СТАТУС: ONLINE | СЕССИЯ: {self.uid} | РОЛЬ: {self.role}{self.reset}")
-            print("-" * 65)
-            print(f"{self.green}1.{self.reset} [ GLOBAL_CHAT ] - Общий зашифрованный канал")
-            print(f"{self.green}2.{self.reset} [ PRIVATE_MSG ] - Поиск и личные сообщения")
-            print(f"{self.green}3.{self.reset} [ SYSTEM_INFO ] - Состояние сети Ghost")
-            if self.role == "ADMIN":
-                print(f"{self.red}4. [ ADMIN_PANEL ] - Управление пользователями{self.reset}")
-            print(f"{self.green}0.{self.reset} [ DISCONNECT ] - Разорвать соединение")
-            
-            choice = input(f"\n{self.green}GHOST@TERMINAL:~$ {self.reset}")
-            
-            if choice == "1": self.chat_engine("GLOBAL")
-            elif choice == "0": self.running = False
-            elif choice == "4" and self.role == "ADMIN": self.admin_panel()
+    def send_message(self):
+        msg = Prompt.ask(f"[bold white]{self.uid}[/bold white][bold green] @ message[/bold green]")
+        if msg.lower() in ['exit', 'quit', '0']:
+            self.is_running = False
+            return
 
-    def chat_engine(self, channel):
-        self.draw_logo()
-        print(f"{self.yellow}[*] ВХОД В КАНАЛ: {channel} (Введите '/exit' для выхода){self.reset}")
-        print("-" * 65)
-
-        # Поток для прослушивания сообщений
-        def listen():
-            messages = self.db.collection("messages").order_by("ts", descending=False).limit_to_last(15)
-            watch = messages.on_snapshot(self.on_snapshot)
-
-        threading.Thread(target=listen, daemon=True).start()
-
-        while True:
-            msg = input(f"{self.green}{self.uid} > {self.reset}")
-            if msg == "/exit": break
-            if msg.strip():
+        if self.db:
+            try:
                 self.db.collection("messages").add({
                     "u": self.uid,
                     "t": msg,
@@ -112,19 +87,49 @@ class GhostTerminal:
                     "ts": firestore.SERVER_TIMESTAMP,
                     "time": datetime.datetime.now().strftime("%H:%M")
                 })
+            except Exception as e:
+                console.print(f"[red]Ошибка отправки: {e}")
 
-    def on_snapshot(self, docs, changes, read_time):
-        # Логика обновления экрана при получении сообщений
-        pass 
+    def show_chat(self):
+        # Получаем последние 15 сообщений
+        try:
+            docs = self.db.collection("messages").order_by("ts", descending=True).limit(15).get()
+            
+            table = Table(expand=True, border_style="dim", box=None)
+            table.add_column("TIME", style="cyan", width=8)
+            table.add_column("USER", style="bold green", width=15)
+            table.add_column("MESSAGE", style="white")
 
-    def admin_panel(self):
-        self.draw_logo()
-        print(f"{self.red}--- GHOST ADMIN MANAGEMENT ---{self.reset}")
-        print("1. Заблокировать ID")
-        print("2. Очистить логи")
-        input("\nНажмите Enter для возврата...")
+            # Разворачиваем список, чтобы новые были внизу
+            for doc in reversed(list(docs)):
+                m = doc.to_dict()
+                user_color = "bold cyan" if m.get("r") == "ADMIN" else "bold green"
+                table.add_row(
+                    m.get("time", "--:--"),
+                    Text(m.get("u", "unknown"), style=user_color),
+                    m.get("t", "")
+                )
+            
+            self.draw_logo()
+            console.print(f"[bold white]SESSION:[/bold white] {self.uid} | [bold red]ROLE:[/bold red] {self.role}")
+            console.print(table)
+            console.print("-" * console.width)
+        except Exception as e:
+            console.print(f"[red]Ошибка загрузки чата: {e}")
+
+    def main_loop(self):
+        if not self.auth():
+            return
+
+        while self.is_running:
+            self.show_chat()
+            console.print("[dim](Введите '0' для выхода)[/dim]")
+            self.send_message()
 
 if __name__ == "__main__":
-    app = GhostTerminal()
-    app.auth_system()
-    app.show_menu()
+    try:
+        app = GhostTermux()
+        app.main_loop()
+    except KeyboardInterrupt:
+        console.print("\n[bold red]СОЕДИНЕНИЕ РАЗОРВАНО.[/bold red]")
+        sys.exit()
